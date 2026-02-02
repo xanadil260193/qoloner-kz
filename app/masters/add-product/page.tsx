@@ -1,221 +1,172 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { supabase } from '@/app/supabase'
-import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
+import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { supabase } from '../../supabase';
+import { Suspense } from 'react';
 
-export default function AddProduct() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const masterId = searchParams.get('master_id')
-
-  const [loading, setLoading] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
+// Основной компонент с логикой
+function AddProductForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const master_id = searchParams.get('master_id');
 
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     price: '',
     category: '',
-    image: null as File | null
-  })
+  });
 
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
   const categories = [
-    'Одежда',
-    'Аксессуары',
     'Украшения',
-    'Сумки',
-    'Игрушки',
-    'Декор',
-    'Посуда',
-    'Другое'
-  ]
-
-  useEffect(() => {
-    if (!masterId) {
-      setError('Не указан ID мастерицы')
-    }
-  }, [masterId])
+    'Одежда',
+    'Декор для дома',
+    'Свечи',
+    'Керамика',
+    'Текстиль',
+    'Аксессуары',
+    'Другое',
+  ];
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+    const file = e.target.files?.[0];
     if (file) {
-      setFormData({ ...formData, image: file })
-      
-      // Превью
-      const reader = new FileReader()
+      setImageFile(file);
+      const reader = new FileReader();
       reader.onloadend = () => {
-        setImagePreview(reader.result as string)
-      }
-      reader.readAsDataURL(file)
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
-  }
-
-  const uploadImage = async (file: File): Promise<string | null> => {
-    try {
-      setUploading(true)
-      
-      // Генерируем уникальное имя файла
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
-      const filePath = `${fileName}`
-
-      console.log('📤 Загружаем фото:', filePath)
-
-      // Загружаем в Supabase Storage
-      const { data, error: uploadError } = await supabase.storage
-        .from('product-images')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        })
-
-      if (uploadError) {
-        console.error('❌ Ошибка загрузки:', uploadError)
-        throw uploadError
-      }
-
-      console.log('✅ Фото загружено:', data)
-
-      // Получаем публичный URL
-      const { data: urlData } = supabase.storage
-        .from('product-images')
-        .getPublicUrl(filePath)
-
-      console.log('🔗 Публичный URL:', urlData.publicUrl)
-
-      return urlData.publicUrl
-
-    } catch (err: any) {
-      console.error('❌ Ошибка загрузки изображения:', err)
-      setError(`Не удалось загрузить фото: ${err.message}`)
-      return null
-    } finally {
-      setUploading(false)
-    }
-  }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-
-    // Валидация
-    if (!formData.title.trim()) {
-      setError('Введите название товара')
-      setLoading(false)
-      return
-    }
-
-    if (!formData.description.trim()) {
-      setError('Введите описание')
-      setLoading(false)
-      return
-    }
-
-    if (!formData.price || Number(formData.price) <= 0) {
-      setError('Укажите корректную цену')
-      setLoading(false)
-      return
-    }
-
-    if (!formData.category) {
-      setError('Выберите категорию')
-      setLoading(false)
-      return
-    }
-
-    if (!formData.image) {
-      setError('Загрузите фото товара')
-      setLoading(false)
-      return
-    }
+    e.preventDefault();
+    setError('');
+    setLoading(true);
 
     try {
-      // 1. Загружаем фото
-      const imageUrl = await uploadImage(formData.image)
-      if (!imageUrl) {
-        setLoading(false)
-        return
+      // Валидация
+      if (!formData.title || !formData.price || !formData.category) {
+        setError('Заполните все обязательные поля');
+        setLoading(false);
+        return;
       }
 
-      // 2. Создаём товар
-      const { data, error: insertError } = await supabase
+      if (!imageFile) {
+        setError('Загрузите фото товара');
+        setLoading(false);
+        return;
+      }
+
+      if (!master_id) {
+        setError('ID мастерицы не найден');
+        setLoading(false);
+        return;
+      }
+
+      // 1. Загрузка фото в Supabase Storage
+      setUploading(true);
+      const fileExt = imageFile.name.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = fileName;
+
+      console.log('📤 Загружаем фото:', fileName);
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(filePath, imageFile, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error('❌ Ошибка загрузки фото:', uploadError);
+        throw uploadError;
+      }
+
+      console.log('✅ Фото загружено:', uploadData);
+
+      // 2. Получение публичного URL
+      const { data: publicUrlData } = supabase.storage
+        .from('product-images')
+        .getPublicUrl(filePath);
+
+      const imageUrl = publicUrlData.publicUrl;
+      console.log('🔗 Публичный URL:', imageUrl);
+
+      setUploading(false);
+
+      // 3. Сохранение товара в БД
+      const { data: productData, error: productError } = await supabase
         .from('products')
         .insert([
           {
             title: formData.title,
             description: formData.description,
-            price: Number(formData.price),
+            price: parseFloat(formData.price),
             category: formData.category,
             image_url: imageUrl,
-            master_id: Number(masterId)
-          }
+            master_id: parseInt(master_id),
+          },
         ])
-        .select()
-        .single()
+        .select();
 
-      if (insertError) throw insertError
+      if (productError) {
+        console.error('❌ Ошибка добавления товара:', productError);
+        throw productError;
+      }
 
-      console.log('✅ Товар добавлен:', data)
+      console.log('✅ Товар добавлен:', productData);
 
-      setSuccess(true)
-
-      // Переходим в каталог через 2 секунды
+      setSuccess(true);
       setTimeout(() => {
-        router.push('/catalog')
-      }, 2000)
-
+        router.push('/catalog');
+      }, 2000);
     } catch (err: any) {
-      console.error('❌ Ошибка добавления товара:', err)
-      setError(err.message || 'Не удалось добавить товар')
+      console.error('❌ Ошибка:', err);
+      setError(err.message || 'Произошла ошибка при добавлении товара');
     } finally {
-      setLoading(false)
+      setLoading(false);
+      setUploading(false);
     }
-  }
-
-  if (success) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-pink-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
-          <div className="text-6xl mb-4">✅</div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">
-            Товар успешно добавлен!
-          </h2>
-          <p className="text-gray-600 mb-4">
-            Ваш товар появится в каталоге
-          </p>
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto"></div>
-        </div>
-      </div>
-    )
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-pink-50 py-12 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-pink-50 to-purple-50 py-12 px-4">
       <div className="max-w-2xl mx-auto">
-        {/* Шапка */}
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-block mb-4">
-            <span className="text-4xl">🧵</span>
-          </Link>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">
-            Добавить товар
-          </h1>
-          <p className="text-gray-600">
-            Заполните информацию о вашем изделии
-          </p>
-        </div>
-
-        {/* Форма */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              Добавить товар
+            </h1>
+            <p className="text-gray-600">
+              Заполните информацию о вашем изделии
+            </p>
+          </div>
+
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
+              ✅ Товар успешно добавлен! Перенаправление...
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Название */}
+            {/* Название товара */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Название товара *
@@ -223,21 +174,26 @@ export default function AddProduct() {
               <input
                 type="text"
                 value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, title: e.target.value })
+                }
                 placeholder="Например: Серьги из натуральных камней"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                required
               />
             </div>
 
             {/* Описание */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Описание *
+                Описание
               </label>
               <textarea
                 value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Опишите ваше изделие: материалы, размеры, особенности..."
+                onChange={(e) =>
+                  setFormData({ ...formData, description: e.target.value })
+                }
+                placeholder="Расскажите о вашем изделии..."
                 rows={4}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               />
@@ -251,9 +207,12 @@ export default function AddProduct() {
               <input
                 type="number"
                 value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, price: e.target.value })
+                }
                 placeholder="8500"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                required
               />
             </div>
 
@@ -264,77 +223,107 @@ export default function AddProduct() {
               </label>
               <select
                 value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, category: e.target.value })
+                }
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                required
               >
                 <option value="">Выберите категорию</option>
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
                 ))}
               </select>
             </div>
 
-            {/* Фото */}
+            {/* Загрузка фото */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Фото товара *
               </label>
-              
-              {imagePreview ? (
-                <div className="mb-4">
-                  <img 
-                    src={imagePreview} 
-                    alt="Preview" 
-                    className="w-full h-64 object-cover rounded-lg"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormData({ ...formData, image: null })
-                      setImagePreview(null)
-                    }}
-                    className="mt-2 text-sm text-red-500 hover:text-red-700"
-                  >
-                    Удалить фото
-                  </button>
+              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-orange-500 transition-colors cursor-pointer">
+                <div className="space-y-1 text-center">
+                  {imagePreview ? (
+                    <div className="mb-4">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="mx-auto h-64 w-64 object-cover rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImageFile(null);
+                          setImagePreview('');
+                        }}
+                        className="mt-2 text-sm text-red-600 hover:text-red-700"
+                      >
+                        Удалить фото
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <svg
+                        className="mx-auto h-12 w-12 text-gray-400"
+                        stroke="currentColor"
+                        fill="none"
+                        viewBox="0 0 48 48"
+                      >
+                        <path
+                          d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                          strokeWidth={2}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      <div className="text-sm text-gray-600">
+                        <label className="relative cursor-pointer bg-white rounded-md font-medium text-orange-600 hover:text-orange-500">
+                          <span>Нажмите для загрузки</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageChange}
+                            className="sr-only"
+                          />
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        PNG, JPG, WEBP до 10MB
+                      </p>
+                    </>
+                  )}
                 </div>
-              ) : (
-                <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <span className="text-5xl mb-3">📸</span>
-                    <p className="mb-2 text-sm text-gray-500">
-                      <span className="font-semibold">Нажмите для загрузки</span>
-                    </p>
-                    <p className="text-xs text-gray-500">PNG, JPG, WebP (макс. 5MB)</p>
-                  </div>
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept="image/*"
-                    onChange={handleImageChange}
-                  />
-                </label>
-              )}
+              </div>
             </div>
 
-            {/* Ошибка */}
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-                {error}
-              </div>
-            )}
-
-            {/* Кнопка */}
+            {/* Кнопка отправки */}
             <button
               type="submit"
               disabled={loading || uploading}
-              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-4 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-gradient-to-r from-orange-500 to-pink-500 text-white py-4 rounded-lg font-semibold hover:from-orange-600 hover:to-pink-600 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {uploading ? 'Загрузка фото...' : loading ? 'Добавление...' : 'Опубликовать товар'}
+              {uploading
+                ? 'Загрузка фото...'
+                : loading
+                ? 'Добавление...'
+                : 'ОПУБЛИКОВАТЬ ТОВАР'}
             </button>
           </form>
         </div>
       </div>
     </div>
-  )
+  );
+}
+
+// Обёрнутый в Suspense компонент (экспорт по умолчанию)
+export default function AddProductPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
+      <div className="text-xl text-gray-600">Загрузка...</div>
+    </div>}>
+      <AddProductForm />
+    </Suspense>
+  );
 }
